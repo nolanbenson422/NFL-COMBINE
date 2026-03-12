@@ -13,6 +13,7 @@ Requirements:
 """
 
 import os
+import pathlib
 import time
 import math
 import sqlite3
@@ -21,6 +22,8 @@ from typing import Dict, Any, List, Iterable
 import pandas as pd
 import requests
 from dotenv import load_dotenv
+
+from temp import SCHEMA_PATH
 
 # ---- External sources ----
 # BALLDONTLIE NFL: Authorization header + cursor pagination.  Docs show base URL and auth pattern.  [1](https://developer.sportradar.com/football/docs/nfl-ig-seasonal-stats)
@@ -97,53 +100,6 @@ def ppr_points_from_row(row: pd.Series, scoring: str = "PPR") -> float:
             + 6.0 * (rush_td + rec_td)
             + rec_bonus * recs
             - 2.0 * fumbles)
-
-
-def ensure_tables(conn: sqlite3.Connection) -> None:
-    """Create target tables if they do not exist yet."""
-    conn.executescript(
-        """
-        PRAGMA foreign_keys = ON;
-
-        CREATE TABLE IF NOT EXISTS rookie_rb_stats (
-          bdl_player_id INTEGER,
-          first_name    TEXT,
-          last_name     TEXT,
-          norm_name     TEXT,
-          season        INTEGER,
-          games_played  INTEGER,
-          rushing_att   REAL,
-          rushing_yds   REAL,
-          rushing_td    REAL,
-          receptions    REAL,
-          receiving_yds REAL,
-          receiving_td  REAL,
-          fumbles_lost  REAL,
-          ppr_points    REAL,   
-          PRIMARY KEY (bdl_player_id, season)
-        );
-
-        CREATE TABLE IF NOT EXISTS combine_rb (
-          season      INTEGER,
-          player_name TEXT,
-          norm_name   TEXT,
-          pos         TEXT,
-          school      TEXT,
-          ht_raw      TEXT,
-          height_in   REAL,
-          weight_lb   REAL,
-          forty       REAL,
-          bench       REAL,
-          vertical    REAL,
-          broad_jump  REAL,
-          cone        REAL,
-          shuttle     REAL,
-          pfr_id      TEXT,
-          UNIQUE (player_name, school, season)
-        );
-        """
-    )
-    conn.commit()
 
 
 # --------------------------------------
@@ -313,6 +269,9 @@ def load_combine_rb(seasons: Iterable[int]) -> pd.DataFrame:
 # Main: build & write to DB
 # -------------------------
 def main() -> None:
+    DB_PATH = "rookie_rb.sqlite"
+    SCHEMA_PATH = "schema.sql"
+    
     print(f"Rookie seasons window: {ROOKIE_YEARS[0]}–{ROOKIE_YEARS[-1]}")
     print(f"Combine seasons window: {COMBINE_YEARS[0]}–{COMBINE_YEARS[-1]}")
     print(f"Scoring mode: {SCORING}")
@@ -325,8 +284,9 @@ def main() -> None:
 
     # 3) Write to SQLite
     os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+
     with sqlite3.connect(DB_PATH) as conn:
-        ensure_tables(conn)
+        conn.executescript(pathlib.Path(SCHEMA_PATH).read_text(encoding="utf-8"))
         if not rook_df.empty:
             rook_df.to_sql("rookie_rb_stats", conn, if_exists="replace", index=False)
         if not combine_df.empty:
