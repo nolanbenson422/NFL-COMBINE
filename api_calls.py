@@ -46,9 +46,9 @@ SCORING = os.getenv("SCORING", "PPR").upper()
 TODAY = dt.date.today()
 CURRENT_YEAR = TODAY.year
 
-# Rookie seasons: past 10 completed seasons (exclude current year)
+# Rookie seasons: create a range of past 10 completed seasons (exclude current year)
 ROOKIE_YEARS = list(range(CURRENT_YEAR - 10, CURRENT_YEAR))      # e.g., 2016..2025
-# Combine seasons: last 10 combines INCLUDING current year (so it includes 2026)
+# Combine seasons: create a range of last 10 combines INCLUDING current year (so it includes 2026)
 COMBINE_YEARS = list(range(CURRENT_YEAR - 9, CURRENT_YEAR + 1))  # e.g., 2017..2026
 
 
@@ -80,7 +80,7 @@ def ppr_points_from_row(row: pd.Series, scoring: str = "PPR") -> float:
     """
     Compute fantasy points from season totals.
     Scoring:
-      - PPR: +1 per reception
+      - PPR: +1 per reception (this use case)
       - HALF_PPR: +0.5 per reception
       - STD: +0 per reception
       - Always: +0.1 per yard (rush+rec), +6 per TD (rush+rec), -2 per fumble lost
@@ -119,7 +119,7 @@ def ensure_tables(conn: sqlite3.Connection) -> None:
           receiving_yds REAL,
           receiving_td  REAL,
           fumbles_lost  REAL,
-          ppr_points    REAL,   -- NEW: PPR/HALF_PPR/STD based on .env
+          ppr_points    REAL,   
           PRIMARY KEY (bdl_player_id, season)
         );
 
@@ -147,7 +147,7 @@ def ensure_tables(conn: sqlite3.Connection) -> None:
 
 
 # --------------------------------------
-# BallDontLie NFL API (cursor pagination)
+# BallDontLie NFL API (cursor pagination strategy per docs)
 # --------------------------------------
 def bdl_paginate(path: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Minimal client for BALLDONTLIE NFL with cursor-based pagination."""
@@ -328,9 +328,9 @@ def main() -> None:
     with sqlite3.connect(DB_PATH) as conn:
         ensure_tables(conn)
         if not rook_df.empty:
-            rook_df.to_sql("rookie_rb_stats", conn, if_exists="append", index=False)
+            rook_df.to_sql("rookie_rb_stats", conn, if_exists="replace", index=False)
         if not combine_df.empty:
-            combine_df.to_sql("combine_rb", conn, if_exists="append", index=False)
+            combine_df.to_sql("combine_rb", conn, if_exists="replace", index=False)
 
     print(f"Done. SQLite: {DB_PATH}")
     print(f"  rookie_rb_stats rows: {len(rook_df)}")
