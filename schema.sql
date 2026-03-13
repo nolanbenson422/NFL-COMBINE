@@ -22,7 +22,7 @@ CREATE INDEX IF NOT EXISTS idx_players_norm_name ON players(norm_name);
    2) Rookie RB Stats
    ========================= */
 
-CREATE TABLE IF NOT EXISTS rookie_rb_stats (
+CREATE TABLE IF NOT EXISTS offensive_stats (
   player_id       INTEGER NOT NULL REFERENCES players(player_id)
                      ON UPDATE CASCADE ON DELETE CASCADE,
   season          INTEGER NOT NULL,
@@ -39,10 +39,10 @@ CREATE TABLE IF NOT EXISTS rookie_rb_stats (
   PRIMARY KEY (player_id, season, scoring)
 );
 
-CREATE INDEX IF NOT EXISTS idx_rookie_season           ON rookie_rb_stats(season);
-CREATE INDEX IF NOT EXISTS idx_rookie_season_scoring   ON rookie_rb_stats(season, scoring);
-CREATE INDEX IF NOT EXISTS idx_rookie_player           ON rookie_rb_stats(player_id);
-CREATE INDEX IF NOT EXISTS idx_rookie_season_ppr       ON rookie_rb_stats(season, ppr_points);
+CREATE INDEX IF NOT EXISTS idx_rookie_season           ON offensive_stats(season);
+CREATE INDEX IF NOT EXISTS idx_rookie_season_scoring   ON offensive_stats(season, scoring);
+CREATE INDEX IF NOT EXISTS idx_rookie_player           ON offensive_stats(player_id);
+CREATE INDEX IF NOT EXISTS idx_rookie_season_ppr       ON offensive_stats(season, ppr_points);
 
 
 /* =========================
@@ -80,22 +80,42 @@ CREATE INDEX IF NOT EXISTS idx_combine_norm_name_season ON combine_results(norm_
    ========================= */
 
 CREATE VIEW IF NOT EXISTS v_rookie_rb_ppr AS
+WITH rookies AS (
+    SELECT
+        player_id,
+        MIN(season) AS rookie_season
+    FROM offensive_stats
+    GROUP BY player_id
+)
 SELECT
-  r.season,
-  p.player_id,
-  p.full_name AS player_name,
-  p.primary_position,
-  p.college,
-  r.games_played,
-  r.rushing_yds, r.rushing_td,
-  r.receptions, r.receiving_yds, r.receiving_td,
-  r.fumbles_lost,
-  r.scoring,
-  r.ppr_points
-FROM rookie_rb_stats r
-JOIN players p ON p.player_id = r.player_id;
+    r.season,
+    p.player_id,
+    p.full_name AS player_name,
+    p.primary_position,
+    p.college,
+    r.games_played,
+    r.rushing_yds, r.rushing_td,
+    r.receptions, r.receiving_yds, r.receiving_td,
+    r.fumbles_lost,
+    r.scoring,
+    r.ppr_points
+FROM offensive_stats r
+JOIN rookies rk
+    ON rk.player_id = r.player_id
+   AND rk.rookie_season = r.season
+JOIN players p
+    ON p.player_id = r.player_id
+WHERE p.primary_position = 'RB';
+
 
 CREATE VIEW IF NOT EXISTS v_rookie_with_combine AS
+WITH rookies AS (
+    SELECT
+        player_id,
+        MIN(season) AS rookie_season
+    FROM offensive_stats
+    GROUP BY player_id
+)
 SELECT
   r.season,
   p.player_id,
@@ -111,10 +131,14 @@ SELECT
   c.height_in,
   c.weight_lb,
   p.college
-FROM rookie_rb_stats r
+FROM offensive_stats r
+JOIN rookies rk
+    ON rk.player_id = r.player_id
+   AND rk.rookie_season = r.season
 JOIN players p
-  ON p.player_id = r.player_id
+    ON p.player_id = r.player_id
 LEFT JOIN combine_results c
-  ON c.norm_name = p.norm_name
- AND c.season    = r.season
+    ON c.norm_name = p.norm_name
+   AND c.season    = r.season
 WHERE p.primary_position = 'RB';
+

@@ -4,7 +4,7 @@ This script is intended to fetch two datasets and store them in SQLite:
   2) Combine results for RBs (past 10 combines, incl. 2026) via nflreadpy
 
 Tables:
-  - rookie_rb_stats (rookie season rb stats with PPR)
+  - offensive_stats (rookie season rb stats with PPR)
   - combine_rb (rb combine results)
 
 Requirements:
@@ -45,9 +45,9 @@ TODAY = dt.date.today()
 CURRENT_YEAR = TODAY.year
 
 # Rookie seasons: create a range of past 10 completed seasons (exclude current year)
-ROOKIE_YEARS = list(range(CURRENT_YEAR - 20, CURRENT_YEAR))      # e.g., 2016..2025
+ROOKIE_YEARS = list(range(CURRENT_YEAR - 25, CURRENT_YEAR))      # e.g., 2016..2025
 # Combine seasons: create a range of last 10 combines INCLUDING current year (so it includes 2026)
-COMBINE_YEARS = list(range(CURRENT_YEAR - 19, CURRENT_YEAR + 1))  # e.g., 2017..2026
+COMBINE_YEARS = list(range(CURRENT_YEAR - 24, CURRENT_YEAR + 1))  # e.g., 2017..2026
 
 
 # ----------------------
@@ -107,7 +107,8 @@ def load_nflverse_rb_season_totals(season: int) -> pd.DataFrame:
     if "position" not in df.columns:
         return pd.DataFrame()
 
-    df = df[df["position"].astype(str).str.upper() == "RB"].copy()
+    # df = df[df["position"].astype(str).str.upper() == "RB"].copy()
+    df = df[df["position"].astype(str).str.upper().isin(["RB", "WR", "TE"])].copy()
     if df.empty:
         return df
 
@@ -144,7 +145,38 @@ def load_nflverse_rb_season_totals(season: int) -> pd.DataFrame:
     return df[keep]
 
 
-def compute_rookie_rb_stats(seasons, scoring):
+# def compute_rookie_rb_stats(seasons, scoring):
+#     parts = []
+#     for y in seasons:
+#         try:
+#             df_y = load_nflverse_rb_season_totals(y)
+#             if not df_y.empty:
+#                 parts.append(df_y)
+#         except Exception as e:
+#             print(f"WARN: failed loading season {y}: {e}")
+
+#     if not parts:
+#         return pd.DataFrame()
+
+#     all_stats = pd.concat(parts, ignore_index=True)
+
+#     rook_year = (
+#         all_stats.sort_values(["player_id", "season"])
+#         .groupby("player_id")["season"]
+#         .first()
+#         .rename("rookie_season")
+#     )
+
+#     rook = all_stats.merge(rook_year, on="player_id")
+#     rook = rook[rook["season"] == rook["rookie_season"]].copy()
+#     rook.drop(columns=["rookie_season"], inplace=True)
+
+#     rook["scoring"] = scoring
+#     rook["ppr_points"] = rook.apply(lambda r: ppr_points_from_row(r, scoring), axis=1)
+
+#     return rook
+
+def compute_rb_stats_all_seasons(seasons, scoring):
     parts = []
     for y in seasons:
         try:
@@ -157,25 +189,16 @@ def compute_rookie_rb_stats(seasons, scoring):
     if not parts:
         return pd.DataFrame()
 
+    # ALL seasons for ALL RBs
     all_stats = pd.concat(parts, ignore_index=True)
 
-    rook_year = (
-        all_stats.sort_values(["player_id", "season"])
-        .groupby("player_id")["season"]
-        .first()
-        .rename("rookie_season")
+    # Add scoring + fantasy points
+    all_stats["scoring"] = scoring
+    all_stats["ppr_points"] = all_stats.apply(
+        lambda r: ppr_points_from_row(r, scoring), axis=1
     )
 
-    rook = all_stats.merge(rook_year, on="player_id")
-    rook = rook[rook["season"] == rook["rookie_season"]].copy()
-    rook.drop(columns=["rookie_season"], inplace=True)
-
-    rook["scoring"] = scoring
-    rook["ppr_points"] = rook.apply(lambda r: ppr_points_from_row(r, scoring), axis=1)
-
-    return rook
-
-
+    return all_stats
 
 # --------------------------
 # nflreadpy: Combine (RB only)
@@ -209,7 +232,8 @@ def main() -> None:
     print(f"Scoring mode: {SCORING}")
 
     # 1) Load rookie RB stats
-    rook_df = compute_rookie_rb_stats(ROOKIE_YEARS, scoring=SCORING)
+    # rook_df = compute_rookie_rb_stats(ROOKIE_YEARS, scoring=SCORING)
+    rook_df = compute_rb_stats_all_seasons(ROOKIE_YEARS, scoring=SCORING)
 
     # 2) Load combine RB results
     combine_df = load_combine_rb(COMBINE_YEARS)
@@ -261,12 +285,12 @@ def main() -> None:
         conn.executescript(pathlib.Path(SCHEMA_PATH).read_text(encoding="utf-8"))
 
         players_df.to_sql("players", conn, if_exists="replace", index=False)
-        rook_df.to_sql("rookie_rb_stats", conn, if_exists="replace", index=False)
+        rook_df.to_sql("offensive_stats", conn, if_exists="replace", index=False)
         combine_df.to_sql("combine_results", conn, if_exists="replace", index=False)
 
     print(f"Done. SQLite: {DB_PATH}")
     print(f"  players rows:        {len(players_df)}")
-    print(f"  rookie_rb_stats rows:{len(rook_df)}")
+    print(f"  offensive_stats rows:{len(rook_df)}")
     print(f"  combine_results rows:{len(combine_df)}")
 
 if __name__ == "__main__":
