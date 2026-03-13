@@ -22,12 +22,17 @@ from typing import Dict, Any, List, Iterable
 import pandas as pd
 import requests
 from dotenv import load_dotenv
+from balldontlie import BalldontlieAPI
 
-from temp import SCHEMA_PATH
+# api = BalldontlieAPI(api_key="YOUR_API_KEY")
 
-# ---- External sources ----
-# BALLDONTLIE NFL: Authorization header + cursor pagination.  Docs show base URL and auth pattern.  [1](https://developer.sportradar.com/football/docs/nfl-ig-seasonal-stats)
-BDL_BASE = "https://api.balldontlie.io/nfl/v1"
+
+# # ---- External sources ----
+# # BALLDONTLIE NFL: Authorization header + cursor pagination.  Docs show base URL and auth pattern.  [1](https://developer.sportradar.com/football/docs/nfl-ig-seasonal-stats)
+# BDL_BASE = "https://api.balldontlie.io/nfl/v1"
+
+api = BalldontlieAPI(api_key=os.getenv("BDL_API_KEY"))
+# stats = api.nfl.season_stats.list()
 
 # nflreadpy exposes load_combine() for Combine results (PFR-fed via nflverse).  
 try:
@@ -105,49 +110,157 @@ def ppr_points_from_row(row: pd.Series, scoring: str = "PPR") -> float:
 # --------------------------------------
 # BallDontLie NFL API (cursor pagination strategy per docs)
 # --------------------------------------
-def bdl_paginate(path: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Minimal client for BALLDONTLIE NFL with cursor-based pagination."""
-    items: List[Dict[str, Any]] = []
+# def bdl_paginate(path: str, params: Dict[str, Any]) -> List[Dict[str, Any]]:
+
+#     # API_KEY = os.getenv("BDL_API_KEY")
+#     # print("KEY:", API_KEY)
+
+#     # headers = {"Authorization": f"Bearer {API_KEY}"}
+
+#     # r = requests.get("https://api.balldontlie.io/v2/nba/teams", headers=headers)
+#     # print(r.status_code, r.text)
+#     # print("URL:", f"{BDL_BASE}{path}")
+#     # """Minimal client for BALLDONTLIE NFL with cursor-based pagination."""
+#     items: List[Dict[str, Any]] = []
+#     cursor = None
+#     while True:
+#         query = dict(params)
+#         if cursor is not None:
+#             query["cursor"] = cursor
+
+#         r = api.nfl.season_stats.list(headers=HEADERS, params=query, timeout=30) #f"{BDL_BASE}{path}", headers=HEADERS, params=query, timeout=30)
+#         if r.status_code == 401:
+#             raise SystemExit("401 Unauthorized from BallDontLie. Check BDL_API_KEY / tier.")
+#         if r.status_code == 429:
+#             time.sleep(1.0)
+#             continue
+#         r.raise_for_status()
+
+#         payload = r.json() or {}
+#         items.extend(payload.get("data", []))
+#         meta = payload.get("meta") or {}
+#         cursor = meta.get("next_cursor")
+#         if not cursor:
+#             break
+
+#         time.sleep(0.15)  # gentle pacing
+#     return items
+
+def bdl_paginate(endpoint, *, season=None):
+    items = []
     cursor = None
+
     while True:
-        query = dict(params)
+        query = {}
+        if season is not None:
+            query["season"] = season
         if cursor is not None:
             query["cursor"] = cursor
 
-        r = requests.get(f"{BDL_BASE}{path}", headers=HEADERS, params=query, timeout=30)
+        r = endpoint.list(**query)
+
         if r.status_code == 401:
             raise SystemExit("401 Unauthorized from BallDontLie. Check BDL_API_KEY / tier.")
         if r.status_code == 429:
             time.sleep(1.0)
             continue
+
         r.raise_for_status()
 
         payload = r.json() or {}
         items.extend(payload.get("data", []))
-        meta = payload.get("meta") or {}
-        cursor = meta.get("next_cursor")
+
+        cursor = (payload.get("meta") or {}).get("next_cursor")
         if not cursor:
             break
 
-        time.sleep(0.15)  # gentle pacing
+        time.sleep(0.15)
+
     return items
 
+
+# def load_bdl_rb_season_totals(season: int) -> pd.DataFrame:
+#     """
+#     Load RB season totals for 'season' from BallDontLie NFL.
+#     Flattens nested 'player' object; filters to RB by player.position_abbreviation.
+#     (Auth header + cursor pagination per docs.)  [1](https://developer.sportradar.com/football/docs/nfl-ig-seasonal-stats)
+#     """
+#     raw = bdl_paginate("/stats", {"per_page": 100, "seasons": season})
+#     df = pd.DataFrame(raw)
+#     if df.empty:
+#         return df
+
+#     if "player" in df.columns:
+#         p = pd.json_normalize(df["player"]).add_prefix("player.")
+#         df = pd.concat([df.drop(columns=["player"]), p], axis=1)
+
+#     pos_col = "player.position_abbreviation"
+#     if pos_col in df.columns:
+#         df = df[df[pos_col] == "RB"].copy()
+
+#     # Standardize columns
+#     colmap = {
+#         "player.id": "bdl_player_id",
+#         "games_played": "games_played",
+#         "rushing.attempts": "rushing_att",
+#         "rushing.yards": "rushing_yds",
+#         "rushing.touchdowns": "rushing_td",
+#         "receiving.receptions": "receptions",
+#         "receiving.yards": "receiving_yds",
+#         "receiving.touchdowns": "receiving_td",
+#         "turnovers.fumbles_lost": "fumbles_lost",
+#         "player.first_name": "first_name",
+#         "player.last_name": "last_name",
+#     }
+#     for src, dst in colmap.items():
+#         if src in df.columns:
+#             df.rename(columns={src: dst}, inplace=True)
+#         elif dst not in df.columns:
+#             df[dst] = 0
+
+#     df["season"] = season
+#     df["norm_name"] = (df["first_name"].fillna("") + " " + df["last_name"].fillna("")).apply(
+#         normalize_name
+#     )
+#     # keep only relevant fields
+#     keep = [
+#         "bdl_player_id",
+#         "first_name",
+#         "last_name",
+#         "norm_name",
+#         "season",
+#         "games_played",
+#         "rushing_att",
+#         "rushing_yds",
+#         "rushing_td",
+#         "receptions",
+#         "receiving_yds",
+#         "receiving_td",
+#         "fumbles_lost",
+#     ]
+#     if "games_played" in df.columns:
+#         df = df[df["games_played"].fillna(0) > 0]
+#     return df[[c for c in keep if c in df.columns]]
 
 def load_bdl_rb_season_totals(season: int) -> pd.DataFrame:
     """
     Load RB season totals for 'season' from BallDontLie NFL.
     Flattens nested 'player' object; filters to RB by player.position_abbreviation.
-    (Auth header + cursor pagination per docs.)  [1](https://developer.sportradar.com/football/docs/nfl-ig-seasonal-stats)
     """
-    raw = bdl_paginate("/stats/season", {"per_page": 100, "season": season})
+
+    # Correct call: pass endpoint + season keyword
+    raw = bdl_paginate(api.nfl.season_stats, season=season)
     df = pd.DataFrame(raw)
+
     if df.empty:
         return df
 
+    # Flatten nested player object
     if "player" in df.columns:
         p = pd.json_normalize(df["player"]).add_prefix("player.")
         df = pd.concat([df.drop(columns=["player"]), p], axis=1)
 
+    # Filter to RBs
     pos_col = "player.position_abbreviation"
     if pos_col in df.columns:
         df = df[df[pos_col] == "RB"].copy()
@@ -166,6 +279,7 @@ def load_bdl_rb_season_totals(season: int) -> pd.DataFrame:
         "player.first_name": "first_name",
         "player.last_name": "last_name",
     }
+
     for src, dst in colmap.items():
         if src in df.columns:
             df.rename(columns={src: dst}, inplace=True)
@@ -173,10 +287,11 @@ def load_bdl_rb_season_totals(season: int) -> pd.DataFrame:
             df[dst] = 0
 
     df["season"] = season
-    df["norm_name"] = (df["first_name"].fillna("") + " " + df["last_name"].fillna("")).apply(
-        normalize_name
-    )
-    # keep only relevant fields
+    df["norm_name"] = (
+        df["first_name"].fillna("") + " " + df["last_name"].fillna("")
+    ).apply(normalize_name)
+
+    # Keep only relevant fields
     keep = [
         "bdl_player_id",
         "first_name",
@@ -192,8 +307,10 @@ def load_bdl_rb_season_totals(season: int) -> pd.DataFrame:
         "receiving_td",
         "fumbles_lost",
     ]
+
     if "games_played" in df.columns:
         df = df[df["games_played"].fillna(0) > 0]
+
     return df[[c for c in keep if c in df.columns]]
 
 
@@ -204,6 +321,7 @@ def compute_rookie_rb_stats(seasons: Iterable[int], scoring: str) -> pd.DataFram
     parts: List[pd.DataFrame] = []
     for y in seasons:
         try:
+            print(y)
             df_y = load_bdl_rb_season_totals(y)
             if not df_y.empty:
                 parts.append(df_y)
@@ -245,12 +363,14 @@ def load_combine_rb(seasons: Iterable[int]) -> pd.DataFrame:
     """
     df = nfl.load_combine(seasons=list(seasons))
     # nflreadpy may return Polars DataFrame; convert to pandas if needed
-    try:
-        import polars as pl
-        if isinstance(df, pl.DataFrame):
-            df = df.to_pandas()
-    except Exception:
-        pass
+    # try:
+    #     import polars as pl
+    #     if isinstance(df, pl.DataFrame):
+    #         df = df.to_pandas()
+    # except Exception:
+    #     pass
+    df = df.to_pandas()
+
 
     df = df.rename(columns={"player_name": "player_name", "wt": "weight_lb", "ht": "ht_raw"})
     df = df[df["pos"].astype(str).str.upper() == "RB"].copy()
@@ -273,7 +393,7 @@ def main() -> None:
     SCHEMA_PATH = "schema.sql"
     
     print(f"Rookie seasons window: {ROOKIE_YEARS[0]}–{ROOKIE_YEARS[-1]}")
-    print(f"Combine seasons window: {COMBINE_YEARS[0]}–{COMBINE_YEARS[-1]}")
+   # print(f"Combine seasons window: {COMBINE_YEARS[0]}–{COMBINE_YEARS[-1]}")
     print(f"Scoring mode: {SCORING}")
 
     # 1) Rookie RB stats with PPR
@@ -293,8 +413,8 @@ def main() -> None:
             combine_df.to_sql("combine_rb", conn, if_exists="replace", index=False)
 
     print(f"Done. SQLite: {DB_PATH}")
-    print(f"  rookie_rb_stats rows: {len(rook_df)}")
-    print(f"  combine_rb rows:      {len(combine_df)}")
+    #print(f"  rookie_rb_stats rows: {len(rook_df)}")
+    #print(f"  combine_rb rows:      {len(combine_df)}")
 
 
 if __name__ == "__main__":
