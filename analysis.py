@@ -5,117 +5,119 @@ import matplotlib.pyplot as plt
 def get_top10_rb_weight(conn):
     """
     Returns a DataFrame of the top 10 rookie RBs per season
-    with their PPR points and weight, using the ranked CTE.
+    with their PPR points and weight, using the rookie view.
     """
     query = """
     WITH ranked AS (
         SELECT
-            r.season,
-            p.full_name,
-            r.ppr_points,
-            c.weight_lb,
+            season,
+            player_name,
+            ppr_points,
+            weight_lb,
             ROW_NUMBER() OVER (
-                PARTITION BY r.season
-                ORDER BY r.ppr_points DESC
+                PARTITION BY season
+                ORDER BY ppr_points DESC
             ) AS rn
-        FROM rookie_rb_stats r
-        JOIN players p ON p.player_id = r.player_id
-        LEFT JOIN combine_results c
-          ON c.norm_name = p.norm_name
-         AND c.season = r.season
-        WHERE p.primary_position = 'RB'
+        FROM v_rookie_with_combine
+        WHERE weight_lb IS NOT NULL
     )
     SELECT *
     FROM ranked
-    WHERE rn <= 10 AND weight_lb IS NOT NULL;
+    WHERE rn <= 10;
     """
-    
+
     return pd.read_sql_query(query, conn)
 
 def get_top10_rb_cone(conn):
+    """
+    Returns a DataFrame of the top 10 rookie RBs per season
+    ranked by PPR points, including their 3-cone time.
+    """
     query = """
     WITH ranked AS (
         SELECT
-            r.season,
-            p.full_name,
-            r.ppr_points,
-            c.cone,
+            season,
+            player_name,
+            ppr_points,
+            cone,
             ROW_NUMBER() OVER (
-                PARTITION BY r.season
-                ORDER BY r.ppr_points DESC
+                PARTITION BY season
+                ORDER BY ppr_points DESC
             ) AS rn
-        FROM rookie_rb_stats r
-        JOIN players p ON p.player_id = r.player_id
-        LEFT JOIN combine_results c
-          ON c.norm_name = p.norm_name
-         AND c.season = r.season
-        WHERE p.primary_position = 'RB'
+        FROM v_rookie_with_combine
+        WHERE cone IS NOT NULL
     )
     SELECT *
     FROM ranked
-    WHERE rn <= 10 AND cone IS NOT NULL;
+    WHERE rn <= 10;
     """
+
     return pd.read_sql_query(query, conn)
 
 
 def get_top10_rb_colleges(conn):
+    """
+    Returns a DataFrame of the colleges that produced the most
+    top-10 rookie RBs per season (ranked by PPR points).
+    """
     query = """
     WITH ranked AS (
         SELECT
-            r.season,
-            p.full_name,
-            p.college,
-            r.ppr_points,
+            season,
+            player_name,
+            college,
+            ppr_points,
             ROW_NUMBER() OVER (
-                PARTITION BY r.season
-                ORDER BY r.ppr_points DESC
+                PARTITION BY season
+                ORDER BY ppr_points DESC
             ) AS rn
-        FROM rookie_rb_stats r
-        JOIN players p ON p.player_id = r.player_id
-        WHERE p.primary_position = 'RB'
+        FROM v_rookie_rb_ppr
+        WHERE college IS NOT NULL
+          AND college <> ''
     )
     SELECT college, COUNT(*) AS top10_count
     FROM ranked
-    WHERE rn <= 10 AND college IS NOT NULL AND college <> ''
+    WHERE rn <= 10
     GROUP BY college
     ORDER BY top10_count DESC
     LIMIT 10;
     """
+
     return pd.read_sql_query(query, conn)
 
 def get_top10_rb_combine_averages(conn):
+    """
+    Returns average combine metrics for the top 10 rookie RBs per season,
+    ranked by PPR points, using the rookie+combine view.
+    """
     query = """
     WITH ranked AS (
         SELECT
-            r.season,
-            p.full_name,
-            c.forty,
-            c.cone,
-            c.shuttle,
-            c.bench,
-            c.vertical,
-            c.broad_jump,
+            season,
+            player_name,
+            forty,
+            cone,
+            shuttle,
+            bench,
+            vertical,
+            broad_jump,
             ROW_NUMBER() OVER (
-                PARTITION BY r.season
-                ORDER BY r.ppr_points DESC
+                PARTITION BY season
+                ORDER BY ppr_points DESC
             ) AS rn
-        FROM rookie_rb_stats r
-        JOIN players p ON p.player_id = r.player_id
-        LEFT JOIN combine_results c
-          ON c.norm_name = p.norm_name
-         AND c.season = r.season
-        WHERE p.primary_position = 'RB'
+        FROM v_rookie_with_combine
     )
     SELECT
-        AVG(forty) AS avg_40,
-        AVG(cone) AS avg_cone,
-        AVG(shuttle) AS avg_shuttle,
-        AVG(bench) AS avg_bench,
-        AVG(vertical) AS avg_vertical,
-        AVG(broad_jump) AS avg_broad_jump
+        AVG(forty)       AS avg_40,
+        AVG(cone)        AS avg_cone,
+        AVG(shuttle)     AS avg_shuttle,
+        AVG(bench)       AS avg_bench,
+        AVG(vertical)    AS avg_vertical,
+        AVG(broad_jump)  AS avg_broad_jump
     FROM ranked
     WHERE rn <= 10;
     """
+
     return pd.read_sql_query(query, conn)
 
 
@@ -139,10 +141,6 @@ def predict_2026_rb_prospects(conn):
 
     return df.sort_values("score", ascending=False).head(20)
 
-# df_top20 = df.sort_values("score", ascending=False).head(20)
-# df_top20[["player_name", "school", "forty", "cone", "bench", "weight_lb", "score"]]
-
-# print(df_top20)
 
 
 def main() -> None:
@@ -172,7 +170,8 @@ def main() -> None:
     top20_prospects_df = predict_2026_rb_prospects(conn)
     df_top20 = top20_prospects_df.sort_values("score", ascending=False).head(20)
     df_top20[["player_name", "school", "forty", "cone", "bench", "weight_lb", "score"]]
-    print(df_top20)
+    print("Top 20 2026 RB Prospects: ")
+    print(df_top20[["player_name"]])
 
 if __name__ == "__main__":
     main()
