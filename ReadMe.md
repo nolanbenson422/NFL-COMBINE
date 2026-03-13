@@ -56,6 +56,9 @@ Combine results are loaded using the `nflreadpy` library, which provides standar
 **API Documentation:**  
 https://nflreadpy.nflverse.com/
 
+**Data Quality Note:**  
+The nflreadpy api was missing a considerable amount of data concerning the combine. As this was the only free option I found I continued to use it. Final results are likely influence by missing data from the combine scores.
+
 ---
 
 ## 📦 Requirements
