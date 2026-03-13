@@ -37,6 +37,8 @@ Rookie RB season stats  are loaded using the `nflreadpy` library, which provides
 - Receiving Touchdowns
 - Fumbles 
 
+I chose this dataset and api because of its free to use availablitiy as well as it having both combine data and regular season performance data.
+
 
 **API Documentation:**  
 https://nflreadpy.nflverse.com/
