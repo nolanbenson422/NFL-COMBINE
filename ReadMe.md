@@ -66,7 +66,7 @@ The nflreadpy api was missing a considerable amount of data concerning the combi
 Install dependencies:
 
 ```bash
-pip install pandas numpy matplotlib python-dotenv nflreadpy matplotlib requests python-dotenv pyarrow sqlite3
+pip install pandas matplotlib nflreadpy sqlite3 math os
 ```
 
 ## 🗂 Database Schema

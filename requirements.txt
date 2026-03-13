@@ -1,6 +1,6 @@
 pandas
-requests
-python-dotenv
 nflreadpy
-pyarrow
 matplotlib
+math
+os
+datetime

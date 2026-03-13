@@ -1,11 +1,12 @@
 """
 This script is intended to fetch two datasets and store them in SQLite:
-  1) Rookie-season RB stats (past 10 seasons) from BALLDONTLIE NFL API
-  2) Combine results for RBs (past 10 combines, incl. 2026) via nflreadpy
+  1) Rookie-season RB stats (past 25 seasons) from nflreadpy
+  2) Combine results for RBs (past 25 combines, incl. 2026) via nflreadpy
 
 Tables:
-  - offensive_stats (rookie season rb stats with PPR)
+  - offensive_stats (stats for wr,rb, and te in PPR scoring)
   - combine_rb (rb combine results)
+  - players (unique player info, including college)
 
 Requirements:
   pip install -r requirements.txt
@@ -14,15 +15,10 @@ Requirements:
 
 import os
 import pathlib
-import time
 import math
 import sqlite3
 import datetime as dt
-from typing import Dict, Any, List, Iterable
 import pandas as pd
-import requests
-from dotenv import load_dotenv
-from balldontlie import BalldontlieAPI
 
 # # ---- External sources ----
 
@@ -34,32 +30,28 @@ except Exception as e:
 
 
 # ---------------------------
-# Configuration & time window
+# Set up time windows/ranges
 # ---------------------------
-load_dotenv()
-
-DB_PATH = os.getenv("DB_PATH", "rookie_rb.sqlite")
-SCORING = os.getenv("SCORING", "PPR").upper()
-
 TODAY = dt.date.today()
 CURRENT_YEAR = TODAY.year
 
-# Rookie seasons: create a range of past 10 completed seasons (exclude current year)
+# Offensive player seasons: create a range of past 10 completed seasons (exclude current year)
 ROOKIE_YEARS = list(range(CURRENT_YEAR - 25, CURRENT_YEAR))      # e.g., 2016..2025
 # Combine seasons: create a range of last 10 combines INCLUDING current year (so it includes 2026)
-COMBINE_YEARS = list(range(CURRENT_YEAR - 24, CURRENT_YEAR + 1))  # e.g., 2017..2026
-
+COMBINE_YEARS = list(range(CURRENT_YEAR - 25, CURRENT_YEAR + 1))  # e.g., 2017..2026
 
 # ----------------------
 # Small utility functions
 # ----------------------
+
+# This function is used to normalize player names for consistent matching across datasets. It lowercases the name, trims whitespace, and removes any characters that are not letters, spaces, dashes, or apostrophes. This helps in ensuring that names from different sources can be matched accurately.
 def normalize_name(name: str) -> str:
     """Lowercase, trim, collapse whitespace; keep letters, spaces, dash, apostrophe."""
     import re
     s = re.sub(r"[^A-Za-z' -]", "", (name or "")).lower().strip()
     return re.sub(r"\s+", " ", s)
 
-
+# This function is used to convert height measurements from a string format (like '5-11') to inches. It splits the string into feet and inches, converts them to integers, and calculates the total height in inches. If the input is not in the expected format, it returns NaN.
 def height_to_inches(ht: str) -> float:
     """
     Convert height like '5-11' to inches. Returns NaN if not parseable.
@@ -73,7 +65,7 @@ def height_to_inches(ht: str) -> float:
             return math.nan
     return math.nan
 
-
+# This function calculates the fantasy points for a player based on their season statistics and the specified scoring system (PPR, HALF_PPR, or STD). It takes into account rushing yards, receiving yards, touchdowns, receptions, and fumbles lost to compute the total fantasy points. The scoring system determines how many points are awarded for receptions.
 def ppr_points_from_row(row: pd.Series, scoring: str = "PPR") -> float:
     """
     Compute fantasy points from season totals.
@@ -98,16 +90,16 @@ def ppr_points_from_row(row: pd.Series, scoring: str = "PPR") -> float:
 
 
 # --------------------------------------
-# BallDontLie NFL API (cursor pagination strategy per docs)
+# Functions to call the nflreadpy API and load data into SQLite
 # --------------------------------------
 
-def load_nflverse_rb_season_totals(season: int) -> pd.DataFrame:
+# This function loads the NFLverse offensive player season totals for a given season. 
+def load_nflverse_offense_season_totals(season: int) -> pd.DataFrame:
     df = nfl.load_player_stats(seasons=[season]).to_pandas()
 
     if "position" not in df.columns:
         return pd.DataFrame()
-
-    # df = df[df["position"].astype(str).str.upper() == "RB"].copy()
+    
     df = df[df["position"].astype(str).str.upper().isin(["RB", "WR", "TE"])].copy()
     if df.empty:
         return df
@@ -144,43 +136,12 @@ def load_nflverse_rb_season_totals(season: int) -> pd.DataFrame:
 
     return df[keep]
 
-
-# def compute_rookie_rb_stats(seasons, scoring):
-#     parts = []
-#     for y in seasons:
-#         try:
-#             df_y = load_nflverse_rb_season_totals(y)
-#             if not df_y.empty:
-#                 parts.append(df_y)
-#         except Exception as e:
-#             print(f"WARN: failed loading season {y}: {e}")
-
-#     if not parts:
-#         return pd.DataFrame()
-
-#     all_stats = pd.concat(parts, ignore_index=True)
-
-#     rook_year = (
-#         all_stats.sort_values(["player_id", "season"])
-#         .groupby("player_id")["season"]
-#         .first()
-#         .rename("rookie_season")
-#     )
-
-#     rook = all_stats.merge(rook_year, on="player_id")
-#     rook = rook[rook["season"] == rook["rookie_season"]].copy()
-#     rook.drop(columns=["rookie_season"], inplace=True)
-
-#     rook["scoring"] = scoring
-#     rook["ppr_points"] = rook.apply(lambda r: ppr_points_from_row(r, scoring), axis=1)
-
-#     return rook
-
-def compute_rb_stats_all_seasons(seasons, scoring):
+# This function calculates the ppr points for each player in the DataFrame based on their season statistics and the specified scoring system. It applies the ppr_points_from_row function to each row of the DataFrame to compute the fantasy points.
+def compute_offense_stats_all_seasons(seasons, scoring):
     parts = []
     for y in seasons:
         try:
-            df_y = load_nflverse_rb_season_totals(y)
+            df_y = load_nflverse_offense_season_totals(y)
             if not df_y.empty:
                 parts.append(df_y)
         except Exception as e:
@@ -203,6 +164,8 @@ def compute_rb_stats_all_seasons(seasons, scoring):
 # --------------------------
 # nflreadpy: Combine (RB only)
 # --------------------------
+
+# This function calls the nflready api to retrieve the combine results for running backs (RBs) for the specified seasons. It filters the results to include only RBs and normalizes player names for consistent matching across datasets. The function also converts height measurements to inches and renames columns for clarity.
 def load_combine_rb(seasons):
     df = nfl.load_combine(seasons=list(seasons)).to_pandas()
 
@@ -226,28 +189,28 @@ def load_combine_rb(seasons):
 def main() -> None:
     DB_PATH = "rookie_rb.sqlite"
     SCHEMA_PATH = "schema.sql"
+    SCORING = "PPR"
 
     print(f"Rookie seasons window: {ROOKIE_YEARS[0]}–{ROOKIE_YEARS[-1]}")
     print(f"Combine seasons window: {COMBINE_YEARS[0]}–{COMBINE_YEARS[-1]}")
     print(f"Scoring mode: {SCORING}")
 
     # 1) Load rookie RB stats
-    # rook_df = compute_rookie_rb_stats(ROOKIE_YEARS, scoring=SCORING)
-    rook_df = compute_rb_stats_all_seasons(ROOKIE_YEARS, scoring=SCORING)
+    offense_df = compute_offense_stats_all_seasons(ROOKIE_YEARS, scoring=SCORING)
 
     # 2) Load combine RB results
     combine_df = load_combine_rb(COMBINE_YEARS)
 
     # ---------------------------------------------------------
-    # 3) BUILD PLAYERS TABLE (this is where players_df goes)
+    # 3) BUILD PLAYERS TABLE 
     # ---------------------------------------------------------
 
-    rook_players = rook_df[[
+    offense_players = offense_df[[
         "player_id", "first_name", "last_name", "full_name",
         "norm_name", "position"
     ]].copy()
-    rook_players.rename(columns={"position": "primary_position"}, inplace=True)
-    rook_players["college"] = None
+    offense_players.rename(columns={"position": "primary_position"}, inplace=True)
+    offense_players["college"] = None
 
     combine_players = combine_df[[
         "player_name", "norm_name", "pos", "school"
@@ -262,7 +225,7 @@ def main() -> None:
     combine_players["last_name"] = combine_players["full_name"].str.split(" ").str[1:].str.join(" ")
     combine_players["player_id"] = None  # combine does not include player_id
 
-    players_df = pd.concat([rook_players, combine_players], ignore_index=True)
+    players_df = pd.concat([offense_players, combine_players], ignore_index=True)
     players_df = players_df.drop_duplicates(subset=["full_name", "norm_name"])
 
     players_df = players_df.merge(
@@ -285,12 +248,12 @@ def main() -> None:
         conn.executescript(pathlib.Path(SCHEMA_PATH).read_text(encoding="utf-8"))
 
         players_df.to_sql("players", conn, if_exists="replace", index=False)
-        rook_df.to_sql("offensive_stats", conn, if_exists="replace", index=False)
+        offense_df.to_sql("offensive_stats", conn, if_exists="replace", index=False)
         combine_df.to_sql("combine_results", conn, if_exists="replace", index=False)
 
     print(f"Done. SQLite: {DB_PATH}")
     print(f"  players rows:        {len(players_df)}")
-    print(f"  offensive_stats rows:{len(rook_df)}")
+    print(f"  offensive_stats rows:{len(offense_df)}")
     print(f"  combine_results rows:{len(combine_df)}")
 
 if __name__ == "__main__":
