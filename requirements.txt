@@ -1,0 +1,6 @@
+pandas
+nflreadpy
+matplotlib
+math
+os
+datetime

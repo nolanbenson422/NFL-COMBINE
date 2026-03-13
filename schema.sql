@@ -1,0 +1,148 @@
+PRAGMA foreign_keys = ON;
+
+/* =========================
+   1) Players dimension table to store player information
+   ========================= */
+
+CREATE TABLE IF NOT EXISTS players (
+  player_id        INTEGER PRIMARY KEY,
+  first_name       TEXT,
+  last_name        TEXT,
+  full_name        TEXT,
+  norm_name        TEXT NOT NULL,
+  primary_position TEXT,
+  college          TEXT,
+  created_at       TEXT DEFAULT (datetime('now'))
+);
+
+-- This index will help speed up queries that filter by normalized player name
+CREATE INDEX IF NOT EXISTS idx_players_norm_name ON players(norm_name);
+
+
+/* =========================
+   2) Offensive Stats 
+   ========================= */
+
+CREATE TABLE IF NOT EXISTS offensive_stats (
+  player_id       INTEGER NOT NULL REFERENCES players(player_id)
+                     ON UPDATE CASCADE ON DELETE CASCADE,
+  season          INTEGER NOT NULL,
+  games_played    INTEGER,
+  rushing_yds     REAL,
+  rushing_td      REAL,
+  receptions      REAL,
+  receiving_yds   REAL,
+  receiving_td    REAL,
+  fumbles_lost    REAL,
+  position        TEXT,
+  scoring         TEXT NOT NULL,
+  ppr_points      REAL NOT NULL,
+  PRIMARY KEY (player_id, season, scoring)
+);
+
+-- These indexes will help speed up queries that filter by season, scoring type, and player_id
+CREATE INDEX IF NOT EXISTS idx_offensive_season           ON offensive_stats(season);
+CREATE INDEX IF NOT EXISTS idx_offensive_season_scoring   ON offensive_stats(season, scoring);
+CREATE INDEX IF NOT EXISTS idx_offensive_player           ON offensive_stats(player_id);
+CREATE INDEX IF NOT EXISTS idx_offensive_season_ppr       ON offensive_stats(season, ppr_points);
+
+
+/* =========================
+   3) Combine Results
+   ========================= */
+
+CREATE TABLE IF NOT EXISTS combine_results (
+  combine_id   INTEGER PRIMARY KEY,
+  player_id    INTEGER REFERENCES players(player_id)
+                   ON UPDATE CASCADE ON DELETE SET NULL,
+  season       INTEGER NOT NULL,
+  player_name  TEXT,
+  norm_name    TEXT NOT NULL,
+  pos          TEXT,
+  school       TEXT,
+  ht_raw       TEXT,
+  height_in    REAL,
+  weight_lb    REAL,
+  forty        REAL,
+  bench        REAL,
+  vertical     REAL,
+  broad_jump   REAL,
+  cone         REAL,
+  shuttle      REAL,
+  pfr_id       TEXT,
+  UNIQUE(player_id, season),
+  UNIQUE(player_name, school, season)
+);
+
+-- These indexes will help speed up queries that filter by season and normalized player name
+CREATE INDEX IF NOT EXISTS idx_combine_season           ON combine_results(season);
+CREATE INDEX IF NOT EXISTS idx_combine_norm_name_season ON combine_results(norm_name, season);
+
+/* =========================
+   4) Views
+   ========================= */
+
+-- This view will return the rookie season stats for running backs (RB) in PPR scoring format
+CREATE VIEW IF NOT EXISTS v_rookie_rb_ppr AS
+WITH rookies AS (
+    SELECT
+        player_id,
+        MIN(season) AS rookie_season
+    FROM offensive_stats
+    GROUP BY player_id
+)
+SELECT
+    r.season,
+    p.player_id,
+    p.full_name AS player_name,
+    p.primary_position,
+    p.college,
+    r.games_played,
+    r.rushing_yds, r.rushing_td,
+    r.receptions, r.receiving_yds, r.receiving_td,
+    r.fumbles_lost,
+    r.scoring,
+    r.ppr_points
+FROM offensive_stats r
+JOIN rookies rk
+    ON rk.player_id = r.player_id
+   AND rk.rookie_season = r.season
+JOIN players p
+    ON p.player_id = r.player_id
+WHERE p.primary_position = 'RB';
+
+-- This view will return the rookie season stats for running backs (RB) in PPR scoring format along with their combine results
+CREATE VIEW IF NOT EXISTS v_rookie_with_combine AS
+WITH rookies AS (
+    SELECT
+        player_id,
+        MIN(season) AS rookie_season
+    FROM offensive_stats
+    GROUP BY player_id
+)
+SELECT
+  r.season,
+  p.player_id,
+  p.full_name AS player_name,
+  r.ppr_points,
+  r.scoring,
+  c.forty,
+  c.cone,
+  c.shuttle,
+  c.bench,
+  c.vertical,
+  c.broad_jump,
+  c.height_in,
+  c.weight_lb,
+  p.college
+FROM offensive_stats r
+JOIN rookies rk
+    ON rk.player_id = r.player_id
+   AND rk.rookie_season = r.season
+JOIN players p
+    ON p.player_id = r.player_id
+LEFT JOIN combine_results c
+    ON c.norm_name = p.norm_name
+   AND c.season    = r.season
+WHERE p.primary_position = 'RB';
+
