@@ -1,7 +1,7 @@
 PRAGMA foreign_keys = ON;
 
 /* =========================
-   1) Players dimension
+   1) Players dimension table to store player information
    ========================= */
 
 CREATE TABLE IF NOT EXISTS players (
@@ -15,11 +15,12 @@ CREATE TABLE IF NOT EXISTS players (
   created_at       TEXT DEFAULT (datetime('now'))
 );
 
+-- This index will help speed up queries that filter by normalized player name
 CREATE INDEX IF NOT EXISTS idx_players_norm_name ON players(norm_name);
 
 
 /* =========================
-   2) Rookie RB Stats
+   2) Offensive Stats 
    ========================= */
 
 CREATE TABLE IF NOT EXISTS offensive_stats (
@@ -39,10 +40,11 @@ CREATE TABLE IF NOT EXISTS offensive_stats (
   PRIMARY KEY (player_id, season, scoring)
 );
 
-CREATE INDEX IF NOT EXISTS idx_rookie_season           ON offensive_stats(season);
-CREATE INDEX IF NOT EXISTS idx_rookie_season_scoring   ON offensive_stats(season, scoring);
-CREATE INDEX IF NOT EXISTS idx_rookie_player           ON offensive_stats(player_id);
-CREATE INDEX IF NOT EXISTS idx_rookie_season_ppr       ON offensive_stats(season, ppr_points);
+-- These indexes will help speed up queries that filter by season, scoring type, and player_id
+CREATE INDEX IF NOT EXISTS idx_offensive_season           ON offensive_stats(season);
+CREATE INDEX IF NOT EXISTS idx_offensive_season_scoring   ON offensive_stats(season, scoring);
+CREATE INDEX IF NOT EXISTS idx_offensive_player           ON offensive_stats(player_id);
+CREATE INDEX IF NOT EXISTS idx_offensive_season_ppr       ON offensive_stats(season, ppr_points);
 
 
 /* =========================
@@ -72,6 +74,7 @@ CREATE TABLE IF NOT EXISTS combine_results (
   UNIQUE(player_name, school, season)
 );
 
+-- These indexes will help speed up queries that filter by season and normalized player name
 CREATE INDEX IF NOT EXISTS idx_combine_season           ON combine_results(season);
 CREATE INDEX IF NOT EXISTS idx_combine_norm_name_season ON combine_results(norm_name, season);
 
@@ -79,6 +82,7 @@ CREATE INDEX IF NOT EXISTS idx_combine_norm_name_season ON combine_results(norm_
    4) Views
    ========================= */
 
+-- This view will return the rookie season stats for running backs (RB) in PPR scoring format
 CREATE VIEW IF NOT EXISTS v_rookie_rb_ppr AS
 WITH rookies AS (
     SELECT
@@ -107,7 +111,7 @@ JOIN players p
     ON p.player_id = r.player_id
 WHERE p.primary_position = 'RB';
 
-
+-- This view will return the rookie season stats for running backs (RB) in PPR scoring format along with their combine results
 CREATE VIEW IF NOT EXISTS v_rookie_with_combine AS
 WITH rookies AS (
     SELECT
