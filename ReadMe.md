@@ -88,14 +88,14 @@ Stores player identity and metadata.
 
 ---
 
-### `rookie_rb_stats`
-Stores rookie-season performance metrics.
+### `offensive_stats`
+Stores offensive players performance metrics.
 
 | Column       | Description |
 |--------------|-------------|
 | player_id    | Foreign key to `players` |
 | season       | NFL season |
-| ppr_points   | Rookie PPR fantasy points |
+| ppr_points   | PPR fantasy points |
 | games_played | Number of games played |
 | attempts     | Rushing attempts |
 | targets      | Passing targets |
