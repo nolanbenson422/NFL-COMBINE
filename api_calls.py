@@ -24,15 +24,7 @@ import requests
 from dotenv import load_dotenv
 from balldontlie import BalldontlieAPI
 
-# api = BalldontlieAPI(api_key="YOUR_API_KEY")
-
-
 # # ---- External sources ----
-# # BALLDONTLIE NFL: Authorization header + cursor pagination.  Docs show base URL and auth pattern.  [1](https://developer.sportradar.com/football/docs/nfl-ig-seasonal-stats)
-# BDL_BASE = "https://api.balldontlie.io/nfl/v1"
-
-api = BalldontlieAPI(api_key=os.getenv("BDL_API_KEY"))
-# stats = api.nfl.season_stats.list()
 
 # nflreadpy exposes load_combine() for Combine results (PFR-fed via nflverse).  
 try:
@@ -46,8 +38,6 @@ except Exception as e:
 # ---------------------------
 load_dotenv()
 
-BDL_API_KEY = os.getenv("BDL_API_KEY")
-HEADERS = {"Authorization": BDL_API_KEY} if BDL_API_KEY else {}
 DB_PATH = os.getenv("DB_PATH", "rookie_rb.sqlite")
 SCORING = os.getenv("SCORING", "PPR").upper()
 
