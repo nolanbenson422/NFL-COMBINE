@@ -2,5 +2,5 @@ pandas
 requests
 python-dotenv
 nflreadpy
-balldontlie
 pyarrow
+matplotlib

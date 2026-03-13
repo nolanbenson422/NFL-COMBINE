@@ -75,10 +75,6 @@ CREATE TABLE IF NOT EXISTS combine_results (
 CREATE INDEX IF NOT EXISTS idx_combine_season           ON combine_results(season);
 CREATE INDEX IF NOT EXISTS idx_combine_norm_name_season ON combine_results(norm_name, season);
 
-DROP VIEW IF EXISTS v_rookie_rb_ppr;
-DROP VIEW IF EXISTS v_rookie_with_combine;
-
-
 /* =========================
    4) Views
    ========================= */

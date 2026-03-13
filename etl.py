@@ -241,6 +241,16 @@ def main() -> None:
     players_df = pd.concat([rook_players, combine_players], ignore_index=True)
     players_df = players_df.drop_duplicates(subset=["full_name", "norm_name"])
 
+    players_df = players_df.merge(
+    combine_df[["norm_name", "school"]],
+    on="norm_name",
+    how="left"
+    )
+
+    players_df["college"] = players_df["college"].fillna(players_df["school"])
+    players_df.drop(columns=["school"], inplace=True)
+
+
     # ---------------------------------------------------------
     # 4) WRITE ALL TABLES TO SQLITE
     # ---------------------------------------------------------
@@ -258,13 +268,6 @@ def main() -> None:
     print(f"  players rows:        {len(players_df)}")
     print(f"  rookie_rb_stats rows:{len(rook_df)}")
     print(f"  combine_results rows:{len(combine_df)}")
-
-    conn = sqlite3.connect("rookie_rb.sqlite")
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-    print(cursor.fetchall())
-
 
 if __name__ == "__main__":
     main()
